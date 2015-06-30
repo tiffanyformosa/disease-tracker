@@ -1,0 +1,57 @@
+#!/usr/bin/env python
+
+import rospy
+import sys, os
+import std_msgs.msg
+import geometry_msgs.msg
+
+from sensor_msgs.msg import LaserScan, PointCloud
+from math import sin,cos,atan2,pi,sqrt
+import matplotlib.pyplot as plt
+
+#subscribe to laserscan
+class Tracker:
+    def __init__(self):
+	#declare base_room here so it only has to be called once
+	base = open(os.path.dirname(os.path.abspath(sys.argv[0]))+"/base_room.txt")
+	self.base_room = [[float(string) for string in line.strip().split(',')] for line in base]
+	base.close()
+
+    #turn laser range into xy, remove walls
+    def fit_ellipse(self, data, publisher):
+    	ellipse_xy = []
+    	offset = 0.05 #distance for being considered part of wall, in meters. Make variable later.
+    	angle = data.angle_min
+    	incr = data.angle_increment
+    	ranges = data.ranges
+    	#polar >> cartesian
+    	for r in ranges:
+	    coordinate = ([cos(angle)*r, sin(angle)*r]) #make xy
+	    #if dots aren't part of walls add them to the list
+	    if all((abs(coordinate[0]-b[0]) > offset) or (abs(coordinate[1]-b[1]) > offset) for b in self.base_room):
+		ellipse_xy.append(coordinate)
+	    angle+=incr
+	#Publish ellipse data as Marker message
+	h = std_msgs.msg.Header()
+	h.frame_id = "laser" #tie marker visualization to laser it comes from
+	h.stamp = data.header.stamp # Note you need to call rospy.init_node() before this will work
+	#publish filtered points as cloud
+	cloud=PointCloud()
+	cloud.header=h
+	cloud.points=[geometry_msgs.msg.Point32(xy[0],xy[1],0) for xy in ellipse_xy]
+	publisher.publish(cloud)
+
+    def tracker(self):
+    	rospy.init_node("tracker", anonymous=True)
+    	#listen to scan topic
+	pub=rospy.Publisher("filtered_points", PointCloud, queue_size=10)
+    	rospy.Subscriber("scan", LaserScan, self.fit_ellipse, pub)
+    	#spin until node is closed
+    	rospy.spin()
+
+if __name__ == '__main__':
+    t = Tracker()
+    try:
+        t.tracker()
+    except rospy.ROSInterruptException:
+        pass

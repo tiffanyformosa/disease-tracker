@@ -1,0 +1,69 @@
+#!/usr/bin/env python
+
+import rospy
+import numpy
+from std_msgs.msg import *
+import geometry_msgs.msg
+
+from sensor_msgs.msg import LaserScan
+class WallFilter:
+    def __init__ (self):
+        self.filter_set = False
+        self.walls = []
+        self.new_walls = [[]]
+        self.reset_count = 0
+        self.reset_thresh = 50
+
+    #When the room is empty call filter reset
+    def reset_filter(self, run):
+        self.filter_set = False
+
+    def rm_walls(self, data, publisher):
+        variance = 0.2 #to account for noise
+        #if the filter is in place remove walls
+        if self.filter_set:
+            ranges = data.ranges
+            filtered_ranges=[]
+            for i in xrange(len(self.walls)):
+                if ranges[i] < (self.walls[i]-variance):
+                    filtered_ranges.append(ranges[i])
+                else:
+                    filtered_ranges.append(data.range_max+1) #invalidate the result at this point
+            #publish filtered_ranges as LaserScan
+            filtered_scan = data
+            h = std_msgs.msg.Header()
+            h.stamp = data.header.stamp
+            h.frame_id = data.header.frame_id
+            filtered_scan.header = h
+            filtered_scan.ranges = filtered_ranges
+            publisher.publish(filtered_scan)
+        #if the filter reset has been called use data to change filter instead
+        else:
+            #scan the room a specified # of times into an array (1 minute ~ 275 scans so 50 scans are about 10 seconds)
+            if self.reset_count < self.reset_thresh:
+                self.new_walls.append([])
+                self.new_walls[self.reset_count]=data.ranges
+                self.reset_count+=1
+            elif self.reset_count == self.reset_thresh:
+                    #unzip the array (to go by point instead of dataset) - len should be ~180
+                zipped=map(list, zip(*filter(None, self.new_walls)))
+                print len(zipped)
+                self.walls = [numpy.median(z) for z in zipped]
+                #reset vars
+                self.reset_count = 0
+                self.new_walls=[[]]
+                self.filter_set = True
+            
+    def wall_filter(self):
+        rospy.init_node("wall_filter", anonymous=True)
+        pub=rospy.Publisher("filtered_scan", LaserScan, queue_size=10)
+        rospy.Subscriber("scan", LaserScan, self.rm_walls, pub)
+        rospy.Subscriber("update_filter_cmd", Bool, self.reset_filter)
+        rospy.spin()
+
+if __name__ == '__main__':
+    node = WallFilter()
+    try:
+        node.wall_filter()
+    except rospy.ROSInterruptException:
+        pass
