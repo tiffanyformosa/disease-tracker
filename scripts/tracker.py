@@ -46,8 +46,9 @@ def fit_ellipse(data, publisher):
     	mark.id=0
     	mark.type=3
     	mark.action=0
-    	mark.pose=geometry_msgs.msg.Pose(geometry_msgs.msg.Point(e2.center[0], e2.center[1], 0.5), geometry_msgs.msg.Quaternion(0.0,0.0,1.0,e2.theta))
-    	mark.scale=geometry_msgs.msg.Vector3(e2.a,e2.b,1) #scale, in meters: e2.a is shoulder-to-shoulder and e2.b is front to back
+    	mark.pose=geometry_msgs.msg.Pose(geometry_msgs.msg.Point(e2.center[0], e2.center[1], 0.5),
+                                         geometry_msgs.msg.Quaternion(0.0,0.0,1.0,cos(e2.theta/2)))
+    	mark.scale=geometry_msgs.msg.Vector3(e2.a,e2.b,1) #scale, in meters
     	mark.color=std_msgs.msg.ColorRGBA(1, 0, 0, 1) #marker is set to be opaque red
     	publisher.publish(mark)
     else:

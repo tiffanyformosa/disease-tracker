@@ -1,9 +1,13 @@
 <launch>
-    <!-- Map server -->
-    <arg name="map_file" default="$(find etu_monitor)/extra/map.yaml"/>
-    <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
-    <node pkg="tf" type="static_transform_publisher" name="laser_to_map" args="-1.15 -2.5000 0 0 0 0 /map /laser 100" />
+    <!--Create marker-->
     <node pkg="etu_nav" name="wall_filter" type="wall_filter.py"/>
     <node pkg="etu_nav" name="fit_ellipse" type="tracker.py"/>
     <node pkg="etu_nav" name="reset_wall_filter" type="reset_walls.py" output="screen"/>
+    <!--Launch Contamination Node-->
+    <node pkg="etu_nav" name="contamination_node" type="contamination_points.py"/>
+    <!-- Map server -->
+    <arg name="map_file" default="$(find etu_nav)/extra/etu_map.yaml"/>
+    <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
+    <!-- transform laser to frame of map-->
+    <node pkg="tf" type="static_transform_publisher" name="laser_to_map" args="-2.2 -0.85 0 0 0 0 1 /map /laser 100"/>
 </launch>
