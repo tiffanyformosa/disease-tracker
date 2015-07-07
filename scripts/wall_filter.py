@@ -20,7 +20,7 @@ class WallFilter:
     def reset_filter(self, run):
         self.filter_set = False
 
-    def rm_walls(self, data, publisher):
+    def _rm_walls(self, data, publisher):
         variance = 0.1 #to account for noise
         switch = int(self.switch)
         self.switch = not self.switch #toggle switch
@@ -63,7 +63,7 @@ class WallFilter:
     def wall_filter(self):
         rospy.init_node("wall_filter", anonymous=True)
         pub=rospy.Publisher("filtered_scan", LaserScan, queue_size=10)
-        rospy.Subscriber("scan", LaserScan, self.rm_walls, pub)
+        rospy.Subscriber("scan", LaserScan, self._rm_walls, pub)
         rospy.Subscriber("update_filter_cmd", Bool, self.reset_filter)
         rospy.spin()
 
