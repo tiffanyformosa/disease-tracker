@@ -18,11 +18,21 @@ class Tracker:
         self.last_a = None
         self.last_b = None
         self.last_center = None
+        self.red = ColorRGBA(1, 0, 0, 1)
+        self.green = ColorRGBA(0, 1, 0, 1)
+        self.color = self.red
 
     def reset (self, run):
         self.last_a = None
         self.last_b = None
         self.last_center = None
+        self.color = self.red
+
+    def get_colors(self, data):
+        if data < 0.5:
+            self.color = self.red
+        else:
+            self.color = self.green
 
     #turn filtered laser data into markers
     def _fit_ellipse(self, data, publisher):
@@ -69,7 +79,7 @@ class Tracker:
             mark.pose=geometry_msgs.msg.Pose(geometry_msgs.msg.Point(e2.center[0], e2.center[1], 0.5),
                                              geometry_msgs.msg.Quaternion(0.0,0.0,1.0,cos(e2.theta/2)))
             mark.scale=geometry_msgs.msg.Vector3(e2.a*2,e2.b*2,1) #scale, in meters
-            mark.color=std_msgs.msg.ColorRGBA(1, 0, 0, 1) #marker is set to be opaque red
+            mark.color=self.color #marker is set to be opaque red
             publisher.publish(mark)
         else:
             print "data not received"
@@ -77,9 +87,10 @@ class Tracker:
     def setup(self):
         rospy.init_node("tracker", anonymous=True)
         #listen to filtered scan topic
-        pub=rospy.Publisher("ellipse_fit", Marker, queue_size=10)
+        pub=rospy.Publisher("tracker", Marker, queue_size=10)
         rospy.Subscriber("filtered_scan", LaserScan, self._fit_ellipse, pub)
         rospy.Subscriber("update_filter_cmd", std_msgs.msg.Bool, self.reset)
+        rospy.Subscriber("contam", Float32, self.get_colors)
         #spin until node is closed
         rospy.spin()
 

@@ -133,7 +133,7 @@ class Tracker2:
         for e in xrange(len(self.ellipses)):
             m=Marker(ns="person", id=e, type=3, action=0)
             m.header=Header(stamp=rospy.Time.now(), frame_id="laser")
-            m.pose=Pose(Point(self.ellipses[e].center[0], self.ellipses[e].center[1], 0),
+            m.pose=Pose(Point(self.ellipses[e].center[0], self.ellipses[e].center[1], .5),
                         Quaternion(0.0,0.0,1.0,cos(self.ellipses[e].theta/2)))
             m.scale=Vector3(self.ellipses[e].a*2,self.ellipses[e].b*2,1) #scale, in meters
             m.color=self.e_colors[e] #TODO: have infected ones be green
@@ -146,7 +146,7 @@ class Tracker2:
         #listen to filtered scan topic
         pub = rospy.Publisher("tracker_array", MarkerArray, queue_size=10)
         rospy.Subscriber("filtered_scan", LaserScan, self.pub_markers, pub)
-        rospy.Subscriber("contam", Float32MultiArray, self.get_colors)
+        rospy.Subscriber("contam_array", Float32MultiArray, self.get_colors)
         rospy.Subscriber("update_filter_cmd", Bool, self.reset, pub)
         #spin until node is closed
         rospy.spin()
