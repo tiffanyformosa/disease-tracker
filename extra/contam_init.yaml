@@ -7,7 +7,12 @@ infectivity: 1
 # %contaminant transferred during movement, between 0 and 1
 transfer: 0.1
 
+# %contaminant cleaned by each pass of the robot, between 0 and 1
+cleaning_power: 1
+
 #stores coordinate data for contamination initialization
+#   lower_left, upper_right: [x, y] in meters from lower left corner
+#   intensity: integer - from 0 to 100
 
 c1:
     lower_left: [0.2, 2.3]

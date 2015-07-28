@@ -1,14 +1,16 @@
 <launch>
-    <!--Create marker pathway-->
+    <!--Create tracking pathway-->
     <node pkg="etu_nav" name="wall_filter" type="wall_filter.py"/>
-    <node pkg="etu_nav" name="fit_ellipses" type="tracker_array2.py"/>
-    <node pkg="etu_nav" name="reset_button" type="reset_walls.py" output="screen"/>
+    <node pkg="etu_nav" name="fit_ellipses" type="tracker_array.py"/>
+    <node pkg="etu_nav" name="reset" type="reset_walls.py" output="screen"/>
+    <!-- cleaner bot launch -->
+    <node pkg="etu_nav" name="cleanerbot" type="cleanerbot.py" output="screen"/>
+    <!--Launch Contamination Node-->
+    <arg name="contam_init" default="$(find etu_nav)/extra/contam_init.yaml"/>
+    <node pkg="etu_nav" name="contamination_node" type="contamination_grid_multi.py" args="$(arg contam_init)" output="screen"/>
     <!-- Map server -->
     <arg name="map_file" default="$(find etu_nav)/extra/etu_map.yaml"/>
     <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
-    <!--Launch Contamination Node-->
-    <arg name="contam_init" default="$(find etu_nav)/extra/contam_init.yaml"/>
-    <node pkg="etu_nav" name="contamination_node" type="contamination_grid2.py" args="$(arg contam_init)" output="screen"/>
     <!-- transform laser to frame of map-->
     <node pkg="tf" type="static_transform_publisher" name="SICK_to_map" args="0.3 1.65 0 0 0 0 1 /map /laser 100"/>
 </launch>

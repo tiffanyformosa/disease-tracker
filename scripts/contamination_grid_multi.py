@@ -18,87 +18,11 @@ from contamination_grid import Contamination
 
 #This class converts ellipse data into an OccupancyGrid message
 
-class Contamination2:
+class Contamination2(Contamination):
     def __init__(self):
+        Contamination.__init__(self)
         self.contam_level=[]
         self.layout = MultiArrayLayout([MultiArrayDimension(label="contam", stride=1)], 0)
-        self.listener=None
-        self.publisher=None
-        self.contam_pub=None
-        self.ogrid = OccupancyGrid()
-        self.step = None
-        #Efficiency of cleaning robot
-        self.power = 0.0
-        #Contaminant picked up from environment
-        self.infectivity = 0.0
-        #Contaminant transfered upon moving
-        self.transfer = 0.0
-        #list of coordinates with contamination
-        self.contam={}
-
-    def reset(self, run):
-        self.contam_level = []
-        self.contam={}
-        self.ogrid.data = [0 for i in xrange(self.ogrid.info.width*self.ogrid.info.height)]
-        with open(sys.argv[1]) as f:
-            for k, v in yaml.load(f.read()).iteritems():
-                if k == "transfer":
-                    self.transfer = v
-                    print "transfer = {0}".format(v)
-                elif k == "infectivity":
-                    self.infectivity = v
-                    print "infectivity = {0}".format(v)
-                elif k == "cleaning_power":
-                    self.power = v
-                    print "cleaning power = {0}".format(v)
-                elif re.match("c[0-9]+", k):
-                    self._base_contam(v["lower_left"], v["upper_right"], v["intensity"])
-
-    def _xy_to_cell(self, xy):
-        #fit XY to nearest cell - each cell is <resolution> meters wide
-        x=int(round(xy[0]/self.ogrid.info.resolution))
-        y=int(round(xy[1]/self.ogrid.info.resolution))
-        return y*self.ogrid.info.width+x
-        #return x, y
-
-    def _snap_to_cell(self, xy):
-        return (round(xy[0]/self.ogrid.info.resolution) * self.ogrid.info.resolution,
-                round(xy[1]/self.ogrid.info.resolution) * self.ogrid.info.resolution)
-
-    def _set_map_metadata(self, metadata):
-        self.ogrid.info = metadata
-        self.ogrid.data = [0 for i in xrange(metadata.width*metadata.height)]
-        self.step = metadata.resolution
-
-    #add initial contamination (rectangles)
-    def _base_contam(self, lower_left, upper_right, intensity):
-        lower_left = self._snap_to_cell(lower_left)
-        upper_right = self._snap_to_cell(upper_right)
-        for x in np.arange(lower_left[0], upper_right[0], self.step):
-            for y in np.arange(lower_left[1], upper_right[1], self.step):
-                index = self._xy_to_cell((x, y))
-                self.ogrid.data[index]=intensity
-                self.contam[index]=(x, y)
-        self.ogrid.header=Header(stamp=rospy.Time.now(),frame_id = "map")
-        self.publisher.publish(self.ogrid)
-        #print "loaded map"
-
-    #turn ellipse into points
-    def _get_ellipse_data(self,ellipse):
-        #transform map to laser to use this
-        try:
-            (trans,rot) = self.listener.lookupTransform('/map', '/'+ellipse.header.frame_id, rospy.Time(0))
-            center = self._snap_to_cell((ellipse.pose.position.x+trans[0], ellipse.pose.position.y+trans[1]))
-            (a, b) = self._snap_to_cell((ellipse.scale.x/2, ellipse.scale.y/2))
-            theta = acos(ellipse.pose.orientation.w)*2
-            return center, a, b, theta
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-            pass
-
-    #return distance from point to ellipse
-    def _e_dist(self, point, center, a, b, theta):
-        return (pow((abs(cos(theta)*(point[0]-center[0]))+abs(sin(theta)*(point[1]-center[1])))/a, 2) +
-                pow((abs(sin(theta)*(point[0]-center[0]))+abs(cos(theta)*(point[1]-center[1])))/b, 2))
 
     def _check_contam(self, ellipse_array):
         #check to see if they have become contaminated
@@ -139,22 +63,9 @@ class Contamination2:
         self.layout.dim[0].size = len(self.contam_level)
         self.contam_pub.publish(Float32MultiArray(self.layout, self.contam_level))
 
-    def _clean_contam(self, ellipse):
-        (center, a, b, theta)=self._get_ellipse_data(ellipse)
-        for x in np.arange(center[0]-a, center[0]+a, self.step):
-            for y in np.arange(center[1]-a, center[1]+a, self.step):
-                distance = self._e_dist((x, y), center, a, b, theta)
-                index = self._xy_to_cell((x, y))
-                #if area within ellipse, remove disease
-                if distance < 1:
-                    self.ogrid.data[index]=int(ceil(self.ogrid.data[index]*(1-self.power)))
-                    if self.ogrid.data[index] > 100:
-                        self.ogrid.data[index] = 100
-                    elif self.ogrid.data[index] <= 0:
-                        del self.contam[index]
-        self.ogrid.header=Header(stamp=rospy.Time.now(),frame_id = "map")
-        self.publisher.publish(self.ogrid)
-
+    def reset(self, run):
+        Contamination.reset(self, run)
+        self.contam_level=[]
 
     #initialize node
     def setup(self):
@@ -172,7 +83,7 @@ class Contamination2:
         rospy.spin()
 
 if __name__ == '__main__':
-    node = Contamination()
+    node = Contamination2()
     try:
         node.setup()
     except rospy.ROSInterruptException:

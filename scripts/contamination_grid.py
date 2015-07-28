@@ -2,6 +2,7 @@
 
 import numpy as np
 import sys
+import re
 from math import cos, sin, acos
 
 import yaml
@@ -49,13 +50,13 @@ class Contamination:
         self.step = metadata.resolution
 
     #add initial contamination (rectangles)
-    def _base_contam(self, lower_left, upper_right):
+    def _base_contam(self, lower_left, upper_right, intensity):
         lower_left = self._snap_to_cell(lower_left)
         upper_right = self._snap_to_cell(upper_right)
         for x in np.arange(lower_left[0], upper_right[0], self.step):
             for y in np.arange(lower_left[1], upper_right[1], self.step):
                 index = self._xy_to_cell((x, y))
-                self.ogrid.data[index]=100
+                self.ogrid.data[index]=intensity
                 self.contam[index]=(x, y)
         self.ogrid.header=Header(stamp=rospy.Time.now(),frame_id = "map")
         self.publisher.publish(self.ogrid)
@@ -63,7 +64,7 @@ class Contamination:
 
     #turn ellipse into points
     def _get_ellipse_data(self,ellipse):
-        #transform map to laser to use this
+        #transform from ellipse frame to map frame and get ellipse data
         try:
             (trans,rot) = self.listener.lookupTransform('/map', '/'+ellipse.header.frame_id, rospy.Time(0))
             center = self._snap_to_cell((ellipse.pose.position.x+trans[0], ellipse.pose.position.y+trans[1]))
@@ -111,6 +112,7 @@ class Contamination:
         self.contam_level = -1
         self.contam={}
         self.ogrid.data = [0 for i in xrange(self.ogrid.info.width*self.ogrid.info.height)]
+        print sys.argv
         with open(sys.argv[1]) as f:
             for k, v in yaml.load(f.read()).iteritems():
                 if k == "transfer":
@@ -127,32 +129,35 @@ class Contamination:
 
     def _clean_contam(self, ellipse):
         (center, a, b, theta)=self._get_ellipse_data(ellipse)
+        #print center, a, b, theta
         for x in np.arange(center[0]-a, center[0]+a, self.step):
             for y in np.arange(center[1]-a, center[1]+a, self.step):
                 distance = self._e_dist((x, y), center, a, b, theta)
                 index = self._xy_to_cell((x, y))
                 #if area within ellipse, remove disease
                 if distance < 1:
-                    self.ogrid.data[index]=int(ceil(self.ogrid.data[index]*(1-self.power)))
-                    if self.ogrid.data[index] > 100:
-                        self.ogrid.data[index] = 100
+                    self.ogrid.data[index]*=(1-self.power)
+                    if self.ogrid.data[index] > 100: self.ogrid.data[index] = 100
                     elif self.ogrid.data[index] <= 0:
-                        del self.contam[index]
+                        self.ogrid.data[index]=0
+                        if index in self.contam: del self.contam[index]
+                    #print self.ogrid.data[index]
         self.ogrid.header=Header(stamp=rospy.Time.now(),frame_id = "map")
         self.publisher.publish(self.ogrid)
 
     #initialize node
     def setup(self):
-        rospy.init_node('contamination2', anonymous=True)
+        rospy.init_node('contamination', anonymous=True)
         metadata = rospy.wait_for_message("map_metadata", MapMetaData, 120)
         self._set_map_metadata(metadata)
         self.publisher=rospy.Publisher("contamination_grid", OccupancyGrid, queue_size=10, latch=True)
         self.contam_pub=rospy.Publisher("contam", Float32, queue_size=10)
+        rospy.Subscriber("cleaner_bot", Marker, self._clean_contam)
         rospy.Subscriber("tracker", Marker, self._check_contam)
         rospy.Subscriber("update_filter_cmd", Bool, self.reset)
         self.listener = tf.TransformListener()
         rate = rospy.Rate(10.0)
-        node.reset(True)
+        self.reset(True)
         rospy.spin()
 
 if __name__ == '__main__':
