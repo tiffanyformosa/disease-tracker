@@ -117,7 +117,6 @@ class Tracker2:
         labels = db.labels_
         #return points, labels
         # Number of clusters in labels, ignoring noise if present.
-        markers = MarkerArray()
         n_clusters = len(set(labels)) - (1 if -1 in db.labels_ else 0)
         new_ellipses = []
         for n in xrange(n_clusters):
@@ -136,7 +135,7 @@ class Tracker2:
             m.pose=Pose(Point(self.ellipses[e].center[0], self.ellipses[e].center[1], .5),
                         Quaternion(0.0,0.0,1.0,cos(self.ellipses[e].theta/2)))
             m.scale=Vector3(self.ellipses[e].a*2,self.ellipses[e].b*2,1) #scale, in meters
-            m.color=self.e_colors[e] #TODO: have infected ones be green
+            m.color=self.e_colors[e] #clean = red, infected = green
             markers.markers.append(m)
         #print len(new_ellipses)
         publisher.publish(markers)

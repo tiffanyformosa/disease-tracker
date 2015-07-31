@@ -112,7 +112,7 @@ class Contamination:
         self.contam_level = -1
         self.contam={}
         self.ogrid.data = [0 for i in xrange(self.ogrid.info.width*self.ogrid.info.height)]
-        print sys.argv
+        #print sys.argv
         with open(sys.argv[1]) as f:
             for k, v in yaml.load(f.read()).iteritems():
                 if k == "transfer":

@@ -30,9 +30,9 @@ class Tracker:
 
     def get_colors(self, data):
         if data < 0.5:
-            self.color = self.red
+            return self.red
         else:
-            self.color = self.green
+            return self.green
 
     #turn filtered laser data into markers
     def _fit_ellipse(self, data, publisher):
@@ -79,7 +79,7 @@ class Tracker:
             mark.pose=geometry_msgs.msg.Pose(geometry_msgs.msg.Point(e2.center[0], e2.center[1], 0.5),
                                              geometry_msgs.msg.Quaternion(0.0,0.0,1.0,cos(e2.theta/2)))
             mark.scale=geometry_msgs.msg.Vector3(e2.a*2,e2.b*2,1) #scale, in meters
-            mark.color=self.color #marker is set to be opaque red
+            mark.color=self.color #marker is red if clean, green if infected
             publisher.publish(mark)
         else:
             print "data not received"
