@@ -63,7 +63,7 @@ class WallFilter:
     def wall_filter(self):
         rospy.init_node("wall_filter", anonymous=True)
         pub=rospy.Publisher("filtered_scan", LaserScan, queue_size=10)
-        rospy.Subscriber("scan", LaserScan, self._rm_walls, pub)
+        rospy.Subscriber("etu_laser", LaserScan, self._rm_walls, pub) #needs to be subscribed to wall laser topic
         rospy.Subscriber("update_filter_cmd", Bool, self.reset_filter)
         rospy.spin()
 
