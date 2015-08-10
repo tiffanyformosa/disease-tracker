@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import rospy
-import std_msgs.msg
+from std_msgs.msg import *
 import geometry_msgs.msg
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker
@@ -30,12 +30,13 @@ class Tracker:
 
     def get_colors(self, data):
         if data < 0.5:
-            return self.red
+            self.color = self.red
         else:
-            return self.green
+            self.color = self.green
 
     #turn filtered laser data into markers
     def _fit_ellipse(self, data, publisher):
+        #print "fitting"
         ellipse_xy = []
         #points = [] #array to hold all points - FOR DEBUGGING
         angle = data.angle_min
@@ -66,7 +67,7 @@ class Tracker:
             self.last_b = e2.b
             self.last_a = e2.a
             #Publish ellipse data as Marker message
-            h = std_msgs.msg.Header()
+            h = Header()
             h.frame_id = "laser" #tie marker visualization to laser it comes from
             h.stamp = rospy.Time.now() # Note you need to call rospy.init_node() before this will work
             #publish marker:person_marker, modify a red cylinder, last indefinitely
@@ -89,7 +90,7 @@ class Tracker:
         #listen to filtered scan topic
         pub=rospy.Publisher("tracker", Marker, queue_size=10)
         rospy.Subscriber("filtered_scan", LaserScan, self._fit_ellipse, pub)
-        rospy.Subscriber("update_filter_cmd", std_msgs.msg.Bool, self.reset)
+        rospy.Subscriber("update_filter_cmd", Bool, self.reset)
         rospy.Subscriber("contam", Float32, self.get_colors)
         #spin until node is closed
         rospy.spin()

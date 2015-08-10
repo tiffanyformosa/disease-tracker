@@ -3,7 +3,7 @@
 import numpy as np
 import sys
 import re
-from math import cos, sin, acos
+from math import cos, sin, acos, ceil
 
 import yaml
 
@@ -23,7 +23,8 @@ class Contamination:
         self.publisher=None
         self.contam_pub=None
         self.ogrid = OccupancyGrid()
-        self.step = None
+        self.step = 0
+        self.offset = (0,0)
         #Efficiency of cleaning robot
         self.power = 0.0
         #Contaminant picked up from environment
@@ -35,8 +36,8 @@ class Contamination:
 
     def _xy_to_cell(self, xy):
         #fit XY to nearest cell - each cell is <resolution> meters wide
-        x=int(round(xy[0]/self.ogrid.info.resolution))
-        y=int(round(xy[1]/self.ogrid.info.resolution))
+        x=int(round((xy[0]-self.offset[0])/self.ogrid.info.resolution))
+        y=int(round((xy[1]-self.offset[1])/self.ogrid.info.resolution))
         return y*self.ogrid.info.width+x
         #return x, y
 
@@ -48,6 +49,7 @@ class Contamination:
         self.ogrid.info = metadata
         self.ogrid.data = [0 for i in xrange(metadata.width*metadata.height)]
         self.step = metadata.resolution
+        self.offset = (metadata.origin.position.x, metadata.origin.position.y)
 
     #add initial contamination (rectangles)
     def _base_contam(self, lower_left, upper_right, intensity):
@@ -56,6 +58,7 @@ class Contamination:
         for x in np.arange(lower_left[0], upper_right[0], self.step):
             for y in np.arange(lower_left[1], upper_right[1], self.step):
                 index = self._xy_to_cell((x, y))
+                #print index
                 self.ogrid.data[index]=intensity
                 self.contam[index]=(x, y)
         self.ogrid.header=Header(stamp=rospy.Time.now(),frame_id = "map")
@@ -99,7 +102,7 @@ class Contamination:
                     distance = self._e_dist((x, y), center, a, b, theta)
                     index = self._xy_to_cell((x, y))
                     if distance < 1:
-                        self.ogrid.data[index]+=int(ceil(self.contam_level[ellipse.id]*self.transfer))
+                        self.ogrid.data[index]+=int(ceil(self.contam_level*self.transfer))
                         if self.ogrid.data[index] > 100:
                             self.ogrid.data[index] = 100
                         if index not in self.contam:
