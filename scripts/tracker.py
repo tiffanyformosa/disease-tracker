@@ -29,7 +29,7 @@ class Tracker:
         self.color = self.red
 
     def get_colors(self, data):
-        if data < 0.5:
+        if data.data < 0.5:
             self.color = self.red
         else:
             self.color = self.green

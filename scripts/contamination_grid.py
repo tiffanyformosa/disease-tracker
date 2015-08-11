@@ -68,11 +68,17 @@ class Contamination:
     #turn ellipse into points
     def _get_ellipse_data(self,ellipse):
         #transform from ellipse frame to map frame and get ellipse data
+        #FORMULA ASSUMES LASER AND MAP ARE ROTATED ONLY AROUND Z AXIS
         try:
             (trans,rot) = self.listener.lookupTransform('/map', '/'+ellipse.header.frame_id, rospy.Time(0))
-            center = self._snap_to_cell((ellipse.pose.position.x+trans[0], ellipse.pose.position.y+trans[1]))
-            (a, b) = self._snap_to_cell((ellipse.scale.x/2, ellipse.scale.y/2))
-            theta = acos(ellipse.pose.orientation.w)*2
+            x = ellipse.pose.position.x
+            y = ellipse.pose.position.y
+            angle = acos(rot[3])*2
+            center = (x*cos(angle)-y*sin(angle)+trans[0], x*sin(angle)+y*cos(angle)+trans[1])
+            (a, b) = (ellipse.scale.x/2, ellipse.scale.y/2)
+            q = ellipse.pose.orientation
+            w =(q.w*rot[3]-q.x*rot[0]-q.y*rot[1]-q.z*rot[2])
+            theta = acos(w)*2
             return center, a, b, theta
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
             pass
@@ -95,7 +101,7 @@ class Contamination:
         #if person is contaminated after that check, amend contamination levels in points
         if self.contam_level > -1:
             #contamination levels decrease as person distributes sickness around
-            self.contam_level = self.contam_level*self.rate
+            self.contam_level *= 1-self.transfer
             #outline square that fits ellipse and then find points within ellipse
             for x in np.arange(center[0]-a, center[0]+a, self.step):
                 for y in np.arange(center[1]-a, center[1]+a, self.step):
