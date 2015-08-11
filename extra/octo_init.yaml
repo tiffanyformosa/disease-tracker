@@ -1,0 +1,21 @@
+# rate of deposited contamination decay
+# dispersal method?, if applicable
+
+# %contaminant transferred from initial areas to person, between 0 and 1
+infectivity: 1
+
+# %contaminant transferred during movement, between 0 and 1
+transfer: 0.1
+
+# %contaminant cleaned by each pass of the robot, between 0 and 1
+cleaning_power: 1
+
+#stores coordinate data for contamination initialization
+#   lower_left, upper_right: [x, y] coordinates in meters
+#   intensity: integer - from 0 to 100
+
+
+c1:
+    lower_left: [-0.5, 0]
+    upper_right: [0.3, 1.5]
+    intensity: 75
