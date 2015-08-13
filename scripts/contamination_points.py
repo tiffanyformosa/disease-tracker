@@ -23,10 +23,11 @@ class ContaminationPC2:
         self.contam_pub=None
         #Efficiency of cleaning robot
         #self.power = 0.0
+        self.min_val = 0.01
         #Contaminant picked up from environment
-        self.infectivity = 0.5
+        self.infectivity = 1
         #Contaminant transfered upon moving
-        self.transfer = 0.5
+        self.transfer = 0.1
         #list of coordinates with contamination: coordinates are Float32, contam is UInt8
         self.fields = [PointField('x',0,7,1), PointField('y',4,7,1), PointField('z',8,7,1),
                        PointField('contam',12,2,1)]
@@ -39,11 +40,14 @@ class ContaminationPC2:
                 point = point_gen.next()
                 key = (point[0], point[1])
                 value = point[2]
-                if key in self.contam:
-                    self.contam[key].append([value, 0])
+                if key in self.contam: self.contam[key].append([value, 0])
                 else: self.contam[key] = [[value, 0]]
             except StopIteration:
                 break
+        # count_empties = 0
+        # for k in self.contam:
+        #     if self.contam[k] == []: count_empties += 1
+        # print count_empties
 
     def _init_contam(self, pc):
         point_gen = point_cloud2.read_points(cloud=pc, skip_nans=True)
@@ -54,12 +58,13 @@ class ContaminationPC2:
                 key = (point[0], point[1])
                 if key in self.contam:
                     z, contam = zip(*self.contam[key])
-                    self.contam[key] = [[point, 100] for point in z]
+                    index = z.index(point[2])
+                    self.contam[key][index][1]=100.0
             except StopIteration:
                 break
         for k, v in self.contam.iteritems():
             for val in v:
-                if val[1] > 0: points_list.append([k[0], k[1], val[0], val[1]])
+                if val[1] > self.min_val: points_list.append([k[0], k[1], val[0], val[1]])
         header = Header(stamp=rospy.Time.now(),frame_id = "/map")
         cloud = point_cloud2.create_cloud(header, self.fields, points_list)
         self.publisher.publish(cloud)
@@ -72,6 +77,17 @@ class ContaminationPC2:
         header = Header(stamp=rospy.Time.now(),frame_id = "/map")
         cloud = point_cloud2.create_cloud(header, self.fields, [])
         self.publisher.publish(cloud)
+        with open(sys.argv[1]) as f:
+            for k, v in yaml.load(f.read()).iteritems():
+                if k == "transfer":
+                    self.transfer = v
+                    print "transfer = {0}".format(v)
+                elif k == "infectivity":
+                    self.infectivity = v
+                    print "infectivity = {0}".format(v)
+                elif k == "cleaning_power":
+                    self.power = v
+                    print "cleaning power = {0}".format(v)
 
     #turn ellipse into points
     def _get_ellipse_data(self,ellipse):
@@ -100,22 +116,27 @@ class ContaminationPC2:
         #check to see if they have become contaminated
         (center, a, b, theta)=self._get_ellipse_data(ellipse) #convert marker to points
         points_list = []
-        print center
+        #print center
+        count_empties = 0
         for k in self.contam:
             distance = self._e_dist(k, center, a, b, theta)
-            z, contam = zip(*self.contam[k])
-            max_c = max(contam)
-            # if person is in area increase relative contamination
-            if distance < 1.1:
-                if self.contam_level<max_c:
-                    self.contam_level=max_c*self.infectivity
-                    print 'I\'m infected now!'
-                elif self.contam_level > 0:
-                    self.contam_level*=(1-self.transfer) #reduce relative contamination
-                    contam=[c+(self.contam_level*self.transfer) for c in contam]
-                    self.contam[k] = zip(z, contam)
+            try:
+                z, contam = zip(*self.contam[k])
+                max_c = max(contam)
+                # if person is in area increase relative contamination
+                if distance < 1.1:
+                    if self.contam_level<max_c:
+                        self.contam_level=max_c*self.infectivity
+                        #print 'I\'m infected now!'
+                    elif self.contam_level > 0:
+                        contam=[c+(self.contam_level*self.transfer) if c+(self.contam_level*self.transfer) < 100 else 100 for c in contam]
+                        self.contam[k] = zip(z, contam)
+            except ValueError:
+                count_empties += 1
             for v in self.contam[k]:
-                if v[1] > 0: points_list.append([k[0], k[1], v[0], v[1]])
+                if v[1] >= self.min_val: points_list.append([k[0], k[1], v[0], v[1]])
+        if self.contam_level > 0: self.contam_level*=(1-self.transfer) #reduce relative contamination
+        if count_empties > 0: print count_empties
         header = Header(stamp=rospy.Time.now(),frame_id = "/map")
         cloud = point_cloud2.create_cloud(header, self.fields, points_list)
         self.publisher.publish(cloud)
@@ -135,10 +156,14 @@ class ContaminationPC2:
         rate = rospy.Rate(10.0)
         self.reset(True)
         rospy.spin()
+        with open("/home/tiffany/contamination_pointcloud2.xyz", "w") as f:
+            for k, v in self.contam.iteritems():
+                for val in v:
+                    if val[1] > self.min_val: f.write("{: 6.3f} {: 6.3f} {: 6.3f} {: 6.3f}\n".format(k[0], k[1], val[0], val[1]))
 
 if __name__ == '__main__':
     node = ContaminationPC2()
     try:
         node.setup()
-    except rospy.ROSInterruptException:
+    except rospy.ROSInterruptException: 
         pass
