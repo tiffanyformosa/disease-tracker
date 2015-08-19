@@ -7,6 +7,7 @@
     <arg name="map_file" default="$(find etu_nav)/extra/octomaps/octo_etu_3d.ot"/>
     <node name="octomap_server" pkg="octomap_server" type="octomap_server_node" args="$(arg map_file)" />
     <!--Launch Contamination Node-->
-    <node pkg="etu_nav" name="contamination_node" type="contamination_points.py" output="screen"/>
+    <arg name="contam_init" default="$(find etu_nav)/extra/contam_init.yaml"/>
+    <node pkg="etu_nav" name="contamination_node" type="contamination_points.py" args="$(arg contam_init)" output="screen"/>
     <node pkg="tf" type="static_transform_publisher" name="laser_to_map" args="0.19 -2.5 0 0 0 .766 0.643 /map /laser 100"/>
 </launch>

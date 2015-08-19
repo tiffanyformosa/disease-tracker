@@ -21,13 +21,14 @@ class ContaminationPC2:
         self.listener=None
         self.publisher=None
         self.contam_pub=None
-        #Efficiency of cleaning robot
-        #self.power = 0.0
+        #least amount of contamination that will be added to map
         self.min_val = 0.01
+        #Efficiency of cleaning robot
+        self.power = 0.0
         #Contaminant picked up from environment
-        self.infectivity = 1
+        self.infectivity = 0.0
         #Contaminant transfered upon moving
-        self.transfer = 0.1
+        self.transfer = 0.0
         #list of coordinates with contamination: coordinates are Float32, contam is UInt8
         self.fields = [PointField('x',0,7,1), PointField('y',4,7,1), PointField('z',8,7,1),
                        PointField('contam',12,2,1)]
@@ -112,7 +113,7 @@ class ContaminationPC2:
         return (pow((abs(cos(theta)*(point[0]-center[0]))+abs(sin(theta)*(point[1]-center[1])))/a, 2) +
                 pow((abs(sin(theta)*(point[0]-center[0]))+abs(cos(theta)*(point[1]-center[1])))/b, 2))
 
-    def _check_contam(self, ellipse):
+    def _check_contam(self, ellipse, is_cleaner):
         #check to see if they have become contaminated
         (center, a, b, theta)=self._get_ellipse_data(ellipse) #convert marker to points
         points_list = []
@@ -125,22 +126,24 @@ class ContaminationPC2:
                 max_c = max(contam)
                 # if person is in area increase relative contamination
                 if distance < 1.1:
-                    if self.contam_level<max_c:
+                    if is_cleaner:
+                        contam=[c*self.power if c*self.power > 0 else 0 for c in contam]
+                    elif self.contam_level<max_c:
                         self.contam_level=max_c*self.infectivity
                         #print 'I\'m infected now!'
                     elif self.contam_level > 0:
                         contam=[c+(self.contam_level*self.transfer) if c+(self.contam_level*self.transfer) < 100 else 100 for c in contam]
-                        self.contam[k] = zip(z, contam)
+                    self.contam[k] = zip(z, contam)
             except ValueError:
                 count_empties += 1
             for v in self.contam[k]:
                 if v[1] >= self.min_val: points_list.append([k[0], k[1], v[0], v[1]])
         if self.contam_level > 0: self.contam_level*=(1-self.transfer) #reduce relative contamination
-        if count_empties > 0: print count_empties
+        #if count_empties > 0: print count_empties
         header = Header(stamp=rospy.Time.now(),frame_id = "/map")
         cloud = point_cloud2.create_cloud(header, self.fields, points_list)
         self.publisher.publish(cloud)
-        self.contam_pub.publish(self.contam_level)
+        if not is_cleaner: self.contam_pub.publish(self.contam_level)
 
     def setup(self):
         rospy.init_node('contamination', anonymous=True)
@@ -148,12 +151,11 @@ class ContaminationPC2:
         self._set_pc(point_cloud)
         self.publisher=rospy.Publisher("contamination_points", PointCloud2, queue_size=10, latch=True)
         self.contam_pub=rospy.Publisher("contam", Float32, queue_size=10)
-        #rospy.Subscriber("cleaner_bot", Marker, self._clean_contam)
+        rospy.Subscriber("cleaner_bot", Marker, self._check_contam, True)
         rospy.Subscriber("rviz_selected_points", PointCloud2, self._init_contam)
-        rospy.Subscriber("tracker", Marker, self._check_contam)
+        rospy.Subscriber("tracker", Marker, self._check_contam, False)
         rospy.Subscriber("update_filter_cmd", Bool, self.reset)
         self.listener = tf.TransformListener()
-        rate = rospy.Rate(10.0)
         self.reset(True)
         rospy.spin()
         with open("/home/tiffany/contamination_pointcloud2.xyz", "w") as f:
