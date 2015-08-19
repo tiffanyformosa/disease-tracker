@@ -110,8 +110,10 @@ class Tracker2:
             angle+=incr
         #eps = range, min_samples = min# of points in cluster.
         points = numpy.asarray(points)
-        #print points
-        db = DBSCAN(eps=0.5, min_samples=3).fit(points)
+        if len(points) > 3:
+            db = DBSCAN(eps=0.5, min_samples=3).fit(points)
+        else:
+            return
         #core_samples_mask = numpy.zeros_like(db.labels_, dtype=bool)
         #core_samples_mask[db.core_sample_indices_] = True
         labels = db.labels_

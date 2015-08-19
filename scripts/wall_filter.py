@@ -30,10 +30,13 @@ class WallFilter:
             ranges = data.ranges
             filtered_ranges=[]
             for i in xrange(len(walls)):
-                if ranges[i] < (walls[i]-variance):
-                    filtered_ranges.append(ranges[i])
-                else:
-                    filtered_ranges.append(data.range_max+1) #invalidate the result at this point
+                try:
+                    if ranges[i] < (walls[i]-variance):
+                        filtered_ranges.append(ranges[i])
+                    else:
+                        filtered_ranges.append(data.range_max+1) #invalidate the result at this point
+                except IndexError:
+                    filtered_ranges.append(data.range_max+1)
             #publish filtered_ranges as LaserScan
             filtered_scan = data
             h = std_msgs.msg.Header()

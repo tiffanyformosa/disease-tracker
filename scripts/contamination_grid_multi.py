@@ -79,7 +79,7 @@ class Contamination2(Contamination):
         rospy.Subscriber("update_filter_cmd", Bool, self.reset)
         self.listener = tf.TransformListener()
         rate = rospy.Rate(10.0)
-        node.reset(True)
+        self.reset(True)
         rospy.spin()
 
 if __name__ == '__main__':

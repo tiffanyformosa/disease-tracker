@@ -35,13 +35,14 @@ class Contamination:
         self.contam={}
 
     def _xy_to_cell(self, xy):
-        #fit XY to nearest cell - each cell is <resolution> meters wide
+        #translate xy to cell - each cell is <resolution> meters wide
         x=int(round((xy[0]-self.offset[0])/self.ogrid.info.resolution))
         y=int(round((xy[1]-self.offset[1])/self.ogrid.info.resolution))
         return y*self.ogrid.info.width+x
         #return x, y
 
     def _snap_to_cell(self, xy):
+        #snap xy coordinate to cell and return modified xy
         return (round(xy[0]/self.ogrid.info.resolution) * self.ogrid.info.resolution,
                 round(xy[1]/self.ogrid.info.resolution) * self.ogrid.info.resolution)
 

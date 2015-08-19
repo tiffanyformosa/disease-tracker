@@ -18,24 +18,26 @@ from nav_msgs.msg import OccupancyGrid, Odometry, MapMetaData
 
 
 class PathPlanner:
+    UP = Quaternion(0, 0, 0.7071, 0.7071)
+    DOWN = Quaternion(0, 0, -0.7071, 0.7071)
+    LEFT = Quaternion(0, 0, 1, 0)
+    RIGHT = Quaternion(0, 0, 0, 1)
+
     def __init__(self):
         self.goals = deque()
-        self.walls = None
         self.offset = (0, 0)
+        self.map = None
         self.listener = None
         self.client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
-        self.seq = 0
+        self.seq = -1
         self.step = 0.2
-        self.up = Quaternion(0, 0, 0.7071, 0.7071)
-        self.down = Quaternion(0, 0, -0.7071, 0.7071)
-        self.left = Quaternion(0, 0, 1, 0)
-        self.right = Quaternion(0, 0, 0, 1)
 
     def extract_points(self, ogrid):
         points = []
         #print numpy.asarray(ogrid.data)
         for i in xrange(len(ogrid.data)):
-            if ogrid.data[i] > 0:
+            #if there is contamination in an empty space, add point to list
+            if ogrid.data[i] > 0 and self.map[i] == 0:
                 newp = [j*ogrid.info.resolution for j in divmod(i, ogrid.info.width)]
                 newp.reverse()
                 points.append(newp)
@@ -48,79 +50,43 @@ class PathPlanner:
         max_x += self.offset[0]
         min_y += self.offset[1]
         max_y += self.offset[1]
-        #print min_x, min_y, max_x, max_y
-        #avoid collisions
-        if self.walls:
-            if min_x < self.walls[0]:
-                min_x = self.walls[0]+self.step
-            if min_y < self.walls[1]:
-                min_y = self.walls[1]+self.step
-            if max_x > self.walls[2]:
-                max_x = self.walls[2]-self.step
-            if max_y > self.walls[3]:
-                max_y = self.walls[3]-self.step  
         center = ((min_x+max_x)/2, (min_y+max_y)/2)
         #print min_x, min_y, max_x, max_y, center
         return [min_x, min_y, max_x, max_y, center]
     
-    def _set_map(self, new_map, metadata):
+    def _set_map(self, new_map):
         #0.177 = robot radius - parameterize so it can source from same place as cleanerbot?
-        self.offset = (metadata.origin.position.x, metadata.origin.position.y)
-        points = self.bounding_box(self.extract_points(new_map))
-        self.walls = [p+0.1 for p in points[:4]]
-        
-    def _set_cluster_goals(self, data, corner):
+        self.offset = (new_map.info.origin.position.x, new_map.info.origin.position.y)
+        self.map = new_map.data
+
+    def _set_goal(self, header, x, y, orientation):
+        pose = PoseStamped(header, Pose(Point(x, y, 0), orientation))
+        goal = MoveBaseGoal()
+        goal.target_pose = pose
+        return goal
+
+    def _set_cluster_goals(self, points, data, corner):
         #data format: (min_x, min_y, max_x, max_y, center)
         #print data
         vert, horiz = corner.split()
         g = []
-        if (data[2] - data[0]) < (data[3]-data[1]):
-            if vert == 'top': #start from top
-                sweep = [data[3], data[1]]
-                dirs = [self.down, self.up]
-            elif vert == 'bottom': #start from bottom
-                sweep = [data[1], data[3]]
-                dirs = [self.up, self.down]
-            if horiz == 'left': #start from left
-                goal_range = numpy.arange(data[0], data[2], self.step)
+        if vert == 'top': #start from top
+            goal_range = numpy.arange(data[3], data[1], 0-self.step)
+        elif vert == 'bottom': #start from bottom
+            goal_range = numpy.arange(data[1], data[3], self.step)
+        for y in goal_range:
+            point_slice = []
+            for p in points:
+                if abs(y-p[1]) <= self.step: point_slice.append(p)
+            min_x, min_y = numpy.min(point_slice, axis=0)
+            max_x, max_y = numpy.max(point_slice, axis=0)
+            header = Header(self.seq, rospy.Time.now(), '/map')
+            if horiz == 'left':
+                g.append(self._set_goal(header, min_x, y, self.RIGHT))
+                g.append(self._set_goal(header, max_x, y, self.LEFT))
             elif horiz == 'right': #start from right
-                goal_range = numpy.arange(data[2], data[0], 0-self.step)
-            #print goal_range, sweep, dirs
-            for x in goal_range:
-                header = Header(self.seq, rospy.Time.now(), '/map')
-                self.seq += 1
-                pose = PoseStamped(header, Pose(Point(x, sweep[0], 0), dirs[0]))
-                goal = MoveBaseGoal()
-                goal.target_pose = pose
-                g.append(goal)
-                pose = PoseStamped(header, Pose(Point(x, sweep[1], 0), dirs[1]))
-                goal = MoveBaseGoal()
-                goal.target_pose = pose
-                g.append(goal)
-        else:
-            if vert == 'top': #start from top
-                goal_range = numpy.arange(data[3], data[1], 0-self.step)
-            elif vert == 'bottom': #start from bottom
-                goal_range = numpy.arange(data[1], data[3], self.step)
-            if horiz == 'left': #start from left
-                sweep = [data[0], data[2]]
-                dirs = [self.right, self.left]
-            elif horiz == 'right': #start from right
-                sweep = [data[2], data[0]]
-                dirs = [self.left, self.right]
-            #print goal_range, sweep, dirs
-            for y in goal_range:
-                header = Header(self.seq, rospy.Time.now(), '/map')
-                self.seq += 1
-                pose = PoseStamped(header, Pose(Point(sweep[0], y, 0), dirs[0]))
-                goal = MoveBaseGoal()
-                goal.target_pose = pose
-                g.append(goal)
-                pose = PoseStamped(header, Pose(Point(sweep[1], y, 0), dirs[1]))
-                goal = MoveBaseGoal()
-                goal.target_pose = pose
-                g.append(goal)
-        #print g
+                g.append(self._set_goal(header, max_x, y, self.LEFT))
+                g.append(self._set_goal(header, min_x, y, self.RIGHT))
         return g
 
     def _dist(self, a, b):
@@ -141,7 +107,7 @@ class PathPlanner:
                 if dist < temp:
                     temp = dist
                     index = p
-            next_point = points.pop(p)
+            next_point = points.pop(index)
             direction = None
             if base_point[1][0] < next_point[1][0]:
                 if base_point[1][1] < next_point[1][1]:
@@ -166,16 +132,15 @@ class PathPlanner:
         return path
 
     def set_path(self, ogrid):
+        #group contam_points into boxes, prioritizing less dirty areas first
         points = self.extract_points(ogrid)
         if points.size == 0:
-            print "Cleaning complete. Program will now exit."
-            return
-        #print points
-        #group contam_points into boxes
-        db = DBSCAN(eps=1.0, min_samples=10).fit(points)
+            rospy.signal_shutdown("Cleaning complete. Program will now exit.")
+        else:
+            db = DBSCAN(eps=0.5, min_samples=10).fit(points)
         # Number of clusters in labels, ignoring noise if present.
         n_clusters = len(set(db.labels_)) - (1 if -1 in db.labels_ else 0)
-        #print n_clusters
+        print n_clusters
         cluster_data = []
         if n_clusters >= 1:
             for n in xrange(n_clusters):
@@ -183,36 +148,51 @@ class PathPlanner:
                 #print "point {0}".format(n)
                 cluster_data.append(self.bounding_box(xy))
             order = self._get_order([x[4] for x in cluster_data])
-            self.goals.extend(self._set_cluster_goals(cluster_data[order[0][0]], order[0][1]))
+            self.seq += 1
+            self.goals.extend(self._set_cluster_goals(points[db.labels_==order[0][0]].tolist(), cluster_data[order[0][0]], order[0][1]))
+            # for o in order:
+            #     self.goals.extend(self._set_cluster_goals(cluster_data[o[0]], o[1]))
+            #     self.seq += 1
         # elif n_clusters == 0 and -1 in db.labels_:
         #     xy = points[db.labels_== -1]
         #     for point in xy:
         #         header = Header(self.seq, rospy.Time.now(), '/map')
         #         self.seq += 1
-        #         pose = PoseStamped(header, Pose(Point(point[0], point[1], 0), self.right))
+        #         pose = PoseStamped(header, Pose(Point(point[0], point[1], 0), RIGHT))
         #         goal = MoveBaseGoal()
         #         goal.target_pose = pose
         #         self.goals.append(goal)
         else:
-            print "Cleaning complete. Program will now exit."
+            rospy.signal_shutdown("Cleaning complete. Program will now exit.")
 
 #send next goal if previous one has completed/terminated
     def send_goal(self):
         self.client.wait_for_server()
+        goal = self.goals.popleft()
         try:
             print "Sending Goal"
-            self.client.send_goal(self.goals.popleft())
+            self.client.send_goal(goal)
         except IndexError:
             print "Oops! No more goals!"
             return
         self.client.wait_for_result()
-        #return self.client.get_result() 
+        state = self.client.get_state()
+        count = 0
+        while state == 4 and count < 3: #if server rejects goal, try another goal a little closer
+            print "Goal failed. Trying again."
+            pose = goal.target_pose.pose
+            if pose.orientation == self.LEFT: pose.position.x -= self.step
+            elif pose.orientation == self.RIGHT: pose.position.x += self.step
+            goal.target_pose.pose = pose
+            self.client.send_goal(goal)
+            self.client.wait_for_result()
+            state = self.client.get_state()
+            count++
 
     def setup(self):
         rospy.init_node('path_planner', anonymous=True)
         base_map = rospy.wait_for_message("map", OccupancyGrid)
-        metadata = rospy.wait_for_message("map_metadata", MapMetaData)
-        self._set_map(base_map, metadata)
+        self._set_map(base_map)
         r = rospy.Rate(5)
         while not rospy.is_shutdown():
             if self.goals: self.send_goal() #if there is a goal, send something
