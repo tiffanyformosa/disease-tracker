@@ -9,7 +9,7 @@ import actionlib
 import yaml
 from math import sqrt, cos
 from collections import *
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import KMeans
 
 from std_msgs.msg import *
 from geometry_msgs.msg import *
@@ -26,6 +26,7 @@ class PathPlanner:
     def __init__(self):
         self.goals = deque()
         self.offset = (0, 0)
+        self.resolution = 0
         self.map = None
         self.listener = None
         self.client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
@@ -54,10 +55,15 @@ class PathPlanner:
         #print min_x, min_y, max_x, max_y, center
         return [min_x, min_y, max_x, max_y, center]
     
-    def _set_map(self, new_map):
+    def _set_map(self, new_map, costmap):
         #0.177 = robot radius - parameterize so it can source from same place as cleanerbot?
         self.offset = (new_map.info.origin.position.x, new_map.info.origin.position.y)
-        self.map = new_map.data
+        self.resolution = new_map.info.resolution
+        m = []
+        for i in xrange(len(new_map.data)):
+            if new_map.data[i] > -1 and new_map.data[i] < costmap.data[i] and costmap.data[i] >= 40: m.append(costmap.data[i])
+            else: m.append(new_map.data[i])
+        self.map = m
 
     def _set_goal(self, header, x, y, orientation):
         pose = PoseStamped(header, Pose(Point(x, y, 0), orientation))
@@ -78,8 +84,11 @@ class PathPlanner:
             point_slice = []
             for p in points:
                 if abs(y-p[1]) <= self.step: point_slice.append(p)
-            min_x, min_y = numpy.min(point_slice, axis=0)
-            max_x, max_y = numpy.max(point_slice, axis=0)
+            try:
+                min_x, min_y = numpy.min(point_slice, axis=0)
+                max_x, max_y = numpy.max(point_slice, axis=0)
+            except ValueError:
+                continue
             header = Header(self.seq, rospy.Time.now(), '/map')
             if horiz == 'left':
                 g.append(self._set_goal(header, min_x, y, self.RIGHT))
@@ -134,22 +143,22 @@ class PathPlanner:
     def set_path(self, ogrid):
         #group contam_points into boxes, prioritizing less dirty areas first
         points = self.extract_points(ogrid)
-        if points.size == 0:
+        if points.size==0:
             rospy.signal_shutdown("Cleaning complete. Program will now exit.")
+            return
         else:
-            db = DBSCAN(eps=0.5, min_samples=10).fit(points)
-        # Number of clusters in labels, ignoring noise if present.
-        n_clusters = len(set(db.labels_)) - (1 if -1 in db.labels_ else 0)
+            n_clusters = int(round(points.size/2*(self.resolution**2))) #1 cluster ~= 1 sq. meter
         print n_clusters
         cluster_data = []
         if n_clusters >= 1:
+            kmeans = KMeans(n_clusters).fit(points)
             for n in xrange(n_clusters):
-                xy = points[db.labels_==n]
+                xy = points[kmeans.labels_==n]
                 #print "point {0}".format(n)
                 cluster_data.append(self.bounding_box(xy))
             order = self._get_order([x[4] for x in cluster_data])
             self.seq += 1
-            self.goals.extend(self._set_cluster_goals(points[db.labels_==order[0][0]].tolist(), cluster_data[order[0][0]], order[0][1]))
+            self.goals.extend(self._set_cluster_goals(points[kmeans.labels_==order[0][0]].tolist(), cluster_data[order[0][0]], order[0][1]))
             # for o in order:
             #     self.goals.extend(self._set_cluster_goals(cluster_data[o[0]], o[1]))
             #     self.seq += 1
@@ -187,12 +196,13 @@ class PathPlanner:
             self.client.send_goal(goal)
             self.client.wait_for_result()
             state = self.client.get_state()
-            count++
+            count+=1
 
     def setup(self):
         rospy.init_node('path_planner', anonymous=True)
         base_map = rospy.wait_for_message("map", OccupancyGrid)
-        self._set_map(base_map)
+        costmap = rospy.wait_for_message("/move_base/global_costmap/costmap", OccupancyGrid)
+        self._set_map(base_map,costmap)
         r = rospy.Rate(5)
         while not rospy.is_shutdown():
             if self.goals: self.send_goal() #if there is a goal, send something
