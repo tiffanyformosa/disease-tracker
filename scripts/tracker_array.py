@@ -25,8 +25,10 @@ class Ellipse:
         self.axis_alpha = axis_a
         self.center_alpha = center_a
     def update(self, e):
+        """Updates ellipse position, axis, and rotation"""
         if self.a != None and self.b != None and self.center != None:
-            self.center = [self.center[i]*self.center_alpha + e.center[i]*(1-self.center_alpha) for i in [0, 1]]
+            self.center = [self.center[i]*self.center_alpha +
+                           e.center[i]*(1-self.center_alpha) for i in [0, 1]]
             self.a = self.a*self.axis_alpha + e.a*(1-self.axis_alpha)
             self.b = self.b*self.axis_alpha + e.b*(1-self.axis_alpha)
         else:
@@ -43,18 +45,31 @@ class Tracker2:
         self.green = ColorRGBA(0, 1, 0, 1)
 
     def reset (self, run, pub):
-        m=Marker(header=Header(stamp=rospy.Time.now(), frame_id="laser"), ns="person", id=0, type=3, action=3)
+       """Clear previous ellipse locations and color data"""
+        m=Marker(header=Header(stamp=rospy.Time.now(), frame_id="laser"),
+                 ns="person", id=0, type=3, action=3)
         pub.publish(MarkerArray([m]))
         self.ellipses = []
         self.e_colors = []
 
     def _min_dist(self, dist, ind, sort, ellipse):
+        """Matches old and new ellipses one-to-one
+
+        This method resolves conflicts in the nearest-neighbors algorithm
+        in case multiple ellipses have the same nearest-neighbor.
+        Keyword arguments:
+        dist -- distances between each point and its neighbors
+        ind -- the index of each neighbor
+        sort -- the dictionary of ellipses matched to an open slot
+        ellipse -- ID for the ellipse, used as index into dist, ind
+        """
         for i in xrange(len(ind[ellipse])):
             k = ind[ellipse, i]
             if k not in sort: #if the ideal position is available
                 sort[k] = (ellipse, dist[ellipse, i])
                 break
-            elif sort[k][1] > dist[ellipse, i]: #if it's taken, but this ellipse is closer
+            #if the spot is taken, but this ellipse is closer
+            elif sort[k][1] > dist[ellipse, i]: 
                 temp = sort[k][0]
                 sort[k] = (ellipse, dist[ellipse, i])
                 sort = self._min_dist(dist, ind, sort, temp)
@@ -62,7 +77,18 @@ class Tracker2:
         return sort
 
     def sort_ellipses(self, new_ellipses):
-        if not self.ellipses: #empty list
+        """Updates the list of ellipse markers.
+
+        This method takes in a list of ellipses and compares them with
+        the locations of the previous list of ellipses using the
+        nearest-neighbors algorithm. Each ellipse is put into the same
+        array index as its predecessor. The updated list is then returned
+        to the user.
+
+        Keyword arguments:
+        new_ellipses -- an unsorted list of replacement ellipses
+        """
+        if not self.ellipses: #No previous ellipses to fit to
             self.ellipses=[Ellipse(n) for n in new_ellipses]
             self.e_colors=[self.red for n in new_ellipses]
             return
@@ -72,7 +98,8 @@ class Tracker2:
         #print newc
         neighbors=NearestNeighbors(n_neighbors=3)
         neighbors.fit(oldc)
-        dist, ind = neighbors.kneighbors(newc) #ind matches index of oldc to match with
+        #ind matches index of oldc to match with
+        dist, ind = neighbors.kneighbors(newc) 
         #print dist, ind #test
         # sort into dict: key=old index, value = (new index, distance)
         sort = {}
@@ -89,6 +116,7 @@ class Tracker2:
                 self.e_colors.append(self.red)
 
     def get_colors(self, contamination):
+        """Determine ellipse color: red for clean, green for contam"""
         data = contamination.data
         for c in xrange(len(data)):
             if data[c] < 0.5:
@@ -96,8 +124,17 @@ class Tracker2:
             else:
                 self.e_colors[c] = self.green
 
-    #data to markers - does not link markers to past marker
     def pub_markers(self, data, publisher):
+        """Convert filtered laser data to ellipses and publish
+
+        This function takes filtered laser scans, clusters them,
+        fits each cluster to an ellipse, and matches each ellipse with its
+        nearest neighbor. The ellipses are published as a MarkerArray.
+
+        Keyword arguments:
+        data -- ROS LaserScan, pre-filtered to remove walls
+        publisher -- publishes the MarkerArray
+        """
         angle = data.angle_min
         incr = data.angle_increment
         max_range = data.range_max
@@ -134,15 +171,17 @@ class Tracker2:
         for e in xrange(len(self.ellipses)):
             m=Marker(ns="person", id=e, type=3, action=0)
             m.header=Header(stamp=rospy.Time.now(), frame_id="laser")
-            m.pose=Pose(Point(self.ellipses[e].center[0], self.ellipses[e].center[1], .5),
+            m.pose=Pose(Point(self.ellipses[e].center[0],
+                              self.ellipses[e].center[1], .5),
                         Quaternion(0.0,0.0,1.0,cos(self.ellipses[e].theta/2)))
-            m.scale=Vector3(self.ellipses[e].a*2,self.ellipses[e].b*2,1) #scale, in meters
+            m.scale=Vector3(self.ellipses[e].a*2,self.ellipses[e].b*2,1)
             m.color=self.e_colors[e] #clean = red, infected = green
             markers.markers.append(m)
         #print len(new_ellipses)
         publisher.publish(markers)
 
     def setup(self):
+        """Initialize node, publishers, and subscribers"""
         rospy.init_node("array_test", anonymous=True)
         #listen to filtered scan topic
         pub = rospy.Publisher("tracker_array", MarkerArray, queue_size=10)

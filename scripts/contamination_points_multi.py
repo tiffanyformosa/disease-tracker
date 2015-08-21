@@ -23,13 +23,27 @@ class ContaminationPC2_Multi(ContaminationPC2):
         self.contam_level=[]
         self.layout = MultiArrayLayout([MultiArrayDimension(label="contam", stride=1)], 0)
 
-    def reset(self, run):
+    def reset(self, run=True):
+        """Empty contamination cloud"""
         ContaminationPC2.reset(self, run)
         self.contam_level=[]
 
     def _check_contam2(self, ellipse_array):
-        #check to see if they have become contaminated
-        #print center
+        """Compare ellipse location to map and modify contamination
+
+        This function takes a ROS Marker as input and publishes
+        the contamination cloud as output.
+        If the marker represents a cleaning robot, remove contamination
+        under the robot at a rate corresponding to power
+        If points in contact with the ellipse are infected, the ellipse
+        becomes infected as well.
+        If the ellipse is currently infected, it spreads infection to
+        all the points it touches.
+        Keyword arguments:
+        ellipse -- ellipse-shaped ROS Marker
+        is_cleaner -- True if the marker represents a cleaning robot,
+                      False if the marker represents a human
+        """
         #count_empties = 0
         while len(self.contam_level) < len(ellipse_array.markers):
             self.contam_level.append(0)
@@ -72,10 +86,12 @@ class ContaminationPC2_Multi(ContaminationPC2):
         self.contam_pub.publish(Float32MultiArray(self.layout, self.contam_level))
 
     def _clean_contam(self, ellipse):
+        """Remove contamination under robot at rate defined by power"""
         #call parent method
         ContaminationPC2._check_contam(self, ellipse, True)
 
     def setup(self):
+        """Initialize node, publishers, and subscribers"""
         rospy.init_node('contamination2', anonymous=True)
         point_cloud=rospy.wait_for_message("octomap_point_cloud_centers", PointCloud2, 120)
         self._set_pc(point_cloud)

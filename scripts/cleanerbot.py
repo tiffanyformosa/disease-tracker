@@ -12,15 +12,17 @@ from visualization_msgs.msg import Marker
 
 class CleanerBot:
     def __init__(self):
-        self.robot_diam=0.354 #value in meters for turtlebot - can it be grabbed from other source?
-        self.robot_height=0.420 #value in meters for turtlebot - can it be grabbed from other source?
+        self.robot_diam=0.354 #value in meters for turtlebot 
+        self.robot_height=0.420 #value in meters for turtlebot
 
     def clean(self, odometry, publisher):
-        #turn robot into cleaner-marker
+        """Convert robot odometry to Marker msg"""
         (x, y) = (odometry.pose.pose.position.x, odometry.pose.pose.position.y)
         h = std_msgs.msg.Header()
-        h.frame_id = odometry.header.frame_id #tie marker visualization to source
-        h.stamp = rospy.Time.now() # Note you need to call rospy.init_node() before this will work
+        #tie marker visualization to source
+        h.frame_id = odometry.header.frame_id
+        # Note you need to call rospy.init_node() before this will work
+        h.stamp = rospy.Time.now() 
         #publish marker:person_marker, modify a red cylinder, last indefinitely
         mark = Marker()
         mark.header=h
@@ -30,7 +32,8 @@ class CleanerBot:
         mark.action=0
         mark.pose=geometry_msgs.msg.Pose(geometry_msgs.msg.Point(x, y, self.robot_height/2),
                                          odometry.pose.pose.orientation)
-        mark.scale=geometry_msgs.msg.Vector3(self.robot_diam,self.robot_diam,self.robot_height)
+        mark.scale=geometry_msgs.msg.Vector3(self.robot_diam, self.robot_diam,
+                                             self.robot_height)
         mark.color=ColorRGBA(0, 0, 1, 1) #marker is blue
         publisher.publish(mark)
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
-import numpy as np
 import sys
 import re
 from math import cos, sin, acos, ceil
 
 import yaml
+import numpy as np
 
 import rospy
 import tf
@@ -35,18 +35,31 @@ class Contamination:
         self.contam={}
 
     def _xy_to_cell(self, xy):
-        #translate xy to cell - each cell is <resolution> meters wide
+        """translate xy to map cell - each cell is <resolution> meters wide
+
+        Keyword arguments:
+        xy: tuple of (x, y) coordinates in meters
+        """
         x=int(round((xy[0]-self.offset[0])/self.ogrid.info.resolution))
         y=int(round((xy[1]-self.offset[1])/self.ogrid.info.resolution))
         return y*self.ogrid.info.width+x
         #return x, y
 
     def _snap_to_cell(self, xy):
-        #snap xy coordinate to cell and return modified xy
-        return (round(xy[0]/self.ogrid.info.resolution) * self.ogrid.info.resolution,
-                round(xy[1]/self.ogrid.info.resolution) * self.ogrid.info.resolution)
+        """snap xy coordinates to cell and return modified xy
+
+        Keyword arguments:
+        xy: tuple of (x, y) coordinates in meters"""
+        return (round(xy[0]/self.ogrid.info.resolution) *
+                self.ogrid.info.resolution,
+                round(xy[1]/self.ogrid.info.resolution) *
+                self.ogrid.info.resolution)
 
     def _set_map_metadata(self, metadata):
+        """Get metadata from map server to initialize contamination map
+
+        Keyword arguments:
+        metadata: ROS MapMetaData message"""
         self.ogrid.info = metadata
         self.ogrid.data = [0 for i in xrange(metadata.width*metadata.height)]
         self.step = metadata.resolution
@@ -54,6 +67,15 @@ class Contamination:
 
     #add initial contamination (rectangles)
     def _base_contam(self, lower_left, upper_right, intensity):
+        """Contaminate a rectangle on the map
+
+        Keyword arguments:
+        lower_left: corner of rectangle
+                    tuple of (x, y) coordinates in meters
+        upper_right: corner of rectangle
+                    tuple of (x, y) coordinates in meters
+        intensity: int value between 0 and 100 expressing contam level
+        """
         lower_left = self._snap_to_cell(lower_left)
         upper_right = self._snap_to_cell(upper_right)
         for x in np.arange(lower_left[0], upper_right[0], self.step):
@@ -66,50 +88,85 @@ class Contamination:
         self.publisher.publish(self.ogrid)
         #print "loaded map"
 
-    #turn ellipse into points
     def _get_ellipse_data(self,ellipse):
+        """
+        Get center, axes lengths, and rotation for an ellipse Marker
+
+        Function returns tuple (center, a, b, theta) in map frame
+        Calculations assume frames are rotated only around z axis
+        Keyword arguments:
+        ellipse -- ROS Marker message in ellipse shape
+        """
         #transform from ellipse frame to map frame and get ellipse data
-        #FORMULA ASSUMES LASER AND MAP ARE ROTATED ONLY AROUND Z AXIS
         try:
-            (trans,rot) = self.listener.lookupTransform('/map', '/'+ellipse.header.frame_id, rospy.Time(0))
+            (trans,rot) = self.listener.lookupTransform('/map',
+                            '/'+ellipse.header.frame_id, rospy.Time(0))
             x = ellipse.pose.position.x
             y = ellipse.pose.position.y
             angle = acos(rot[3])*2
-            center = (x*cos(angle)-y*sin(angle)+trans[0], x*sin(angle)+y*cos(angle)+trans[1])
+            center = (x*cos(angle)-y*sin(angle)+trans[0],
+                      x*sin(angle)+y*cos(angle)+trans[1])
             (a, b) = (ellipse.scale.x/2, ellipse.scale.y/2)
             q = ellipse.pose.orientation
             w =(q.w*rot[3]-q.x*rot[0]-q.y*rot[1]-q.z*rot[2])
             theta = acos(w)*2
             return center, a, b, theta
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+        except (tf.LookupException,
+                tf.ConnectivityException,
+                tf.ExtrapolationException):
             pass
 
-    #return distance from point to ellipse
-    def _e_dist(self, point, center, a, b, theta):
-        return (pow((abs(cos(theta)*(point[0]-center[0]))+abs(sin(theta)*(point[1]-center[1])))/a, 2) +
-                pow((abs(sin(theta)*(point[0]-center[0]))+abs(cos(theta)*(point[1]-center[1])))/b, 2))
+    def _in_ellipse(self, point, ellipse):
+        """
+        Formula for determining whether a point is inside an ellipse
+
+        Function returns True if point is in ellipse, False otherwise
+        Keyword arguments:
+        point -- point outside ellipse
+        ellipse -- tuple of (center, major axis, minor axis, rotation)
+                   describing the ellipse parameters
+        """
+        (center, a, b, theta) = ellipse
+        dist = (pow((abs(cos(theta)*(point[0]-center[0]))+
+                abs(sin(theta)*(point[1]-center[1])))/a, 2) +
+                pow((abs(sin(theta)*(point[0]-center[0]))+
+                abs(cos(theta)*(point[1]-center[1])))/b, 2))
+        if dist <= 1: return True
+        else: return False
 
     def _check_contam(self, ellipse):
-        #check to see if they have become contaminated
-        (center, a, b, theta)=self._get_ellipse_data(ellipse) #convert marker to points
+        """Compare ellipse location to map and modify contamination
+
+        This function takes a ROS Marker as input and publishes
+        the contamination cloud as output.
+        If points in contact with the ellipse are infected, the ellipse
+        becomes infected as well.
+        If the ellipse is currently infected, it spreads infection to
+        all the points it touches.
+        Keyword arguments:
+        ellipse -- ellipse-shaped ROS Marker
+        """
+        (center, a, b, theta)=self._get_ellipse_data(ellipse) 
         for k, v in self.contam.iteritems():
-            distance = self._e_dist(v, center, a, b, theta)
             # if person is in area increase relative contamination
-            if distance < 1 and self.contam_level<self.ogrid.data[k]:
+            if (self._in_ellipse(v, (center, a, b, theta)) < 1 and
+               self.contam_level<self.ogrid.data[k]):
                 self.contam_level = self.ogrid.data[k]*self.infectivity
                 #print ellipse.id, self.contam_level[ellipse.id]
-                self.ogrid.data[k] = int(self.ogrid.data[k]*(1-0.5*self.infectivity))
-        #if person is contaminated after that check, amend contamination levels in points
+                self.ogrid.data[k] = int(self.ogrid.data[k]*
+                                         (1-0.5*self.infectivity))
+        #if person is contaminated after that check
+        #amend contamination levels in points
         if self.contam_level > -1:
-            #contamination levels decrease as person distributes sickness around
+            #contamination levels decrease as person distributes sickness
             self.contam_level *= 1-self.transfer
-            #outline square that fits ellipse and then find points within ellipse
+            #Find all points in ellipse and contaminate them
             for x in np.arange(center[0]-a, center[0]+a, self.step):
                 for y in np.arange(center[1]-a, center[1]+a, self.step):
-                    distance = self._e_dist((x, y), center, a, b, theta)
                     index = self._xy_to_cell((x, y))
-                    if distance < 1:
-                        self.ogrid.data[index]+=int(ceil(self.contam_level*self.transfer))
+                    if self._in_ellipse((x, y), (center, a, b, theta)):
+                        self.ogrid.data[index]+=int(ceil(self.contam_level*
+                                                         self.transfer))
                         if self.ogrid.data[index] > 100:
                             self.ogrid.data[index] = 100
                         if index not in self.contam:
@@ -119,9 +176,11 @@ class Contamination:
         self.publisher.publish(self.ogrid)
 
     def reset(self, run):
+        """Wipe contamination map and re-initialize from YAML file"""
         self.contam_level = -1
         self.contam={}
-        self.ogrid.data = [0 for i in xrange(self.ogrid.info.width*self.ogrid.info.height)]
+        self.ogrid.data = [0 for i in xrange(self.ogrid.info.width*
+                                             self.ogrid.info.height)]
         #print sys.argv
         with open(sys.argv[1]) as f:
             for k, v in yaml.load(f.read()).iteritems():
@@ -135,19 +194,21 @@ class Contamination:
                     self.power = v
                     print "cleaning power = {0}".format(v)
                 elif re.match("c[0-9]+", k):
-                    self._base_contam(v["lower_left"], v["upper_right"], v["intensity"])
+                    self._base_contam(v["lower_left"], v["upper_right"],
+                                                       v["intensity"])
 
     def _clean_contam(self, ellipse):
+        """Remove contamination under robot at rate defined by power"""
         (center, a, b, theta)=self._get_ellipse_data(ellipse)
         #print center, a, b, theta
         for x in np.arange(center[0]-a, center[0]+a, self.step):
             for y in np.arange(center[1]-a, center[1]+a, self.step):
-                distance = self._e_dist((x, y), center, a, b, theta)
                 index = self._xy_to_cell((x, y))
                 #if area within ellipse, remove disease
-                if distance < 1:
+                if self._in_ellipse((x, y), (center, a, b, theta)):
                     self.ogrid.data[index]*=(1-self.power)
-                    if self.ogrid.data[index] > 100: self.ogrid.data[index] = 100
+                    if self.ogrid.data[index] > 100:
+                        self.ogrid.data[index] = 100
                     elif self.ogrid.data[index] <= 0:
                         self.ogrid.data[index]=0
                         if index in self.contam: del self.contam[index]
@@ -157,10 +218,12 @@ class Contamination:
 
     #initialize node
     def setup(self):
+        """Initialize node, publishers, and subscribers"""
         rospy.init_node('contamination', anonymous=True)
         metadata = rospy.wait_for_message("map_metadata", MapMetaData, 120)
         self._set_map_metadata(metadata)
-        self.publisher=rospy.Publisher("contamination_grid", OccupancyGrid, queue_size=10, latch=True)
+        self.publisher=rospy.Publisher("contamination_grid", OccupancyGrid,
+                                       queue_size=10, latch=True)
         self.contam_pub=rospy.Publisher("contam", Float32, queue_size=10)
         rospy.Subscriber("cleaner_bot", Marker, self._clean_contam)
         rospy.Subscriber("tracker", Marker, self._check_contam)

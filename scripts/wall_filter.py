@@ -4,8 +4,8 @@ import rospy
 import numpy
 from std_msgs.msg import *
 import geometry_msgs.msg
-
 from sensor_msgs.msg import LaserScan
+
 class WallFilter:
     def __init__ (self):
         self.filter_set = False
@@ -16,11 +16,22 @@ class WallFilter:
         self.reset_thresh = 100
         self.switch=False
 
-    #When the room is empty call filter reset
     def reset_filter(self, run):
+        """Switch from filtering to making a filter"""
         self.filter_set = False
 
     def _rm_walls(self, data, publisher):
+        """Remove walls; or create a filter if reset_filter is called
+
+        This node invalidates static objects such as walls in the input
+        and publishes the remaining points.
+        If reset_filter is called, data is instead used to construct a
+        new filter from the median of the input values.
+
+        Keyword arguments:
+        data-- ROS LaserScan message
+        publisher-- Publishes filtered LaserScan
+        """
         variance = 0.1 #to account for noise
         switch = int(self.switch)
         self.switch = not self.switch #toggle switch
@@ -34,7 +45,8 @@ class WallFilter:
                     if ranges[i] < (walls[i]-variance):
                         filtered_ranges.append(ranges[i])
                     else:
-                        filtered_ranges.append(data.range_max+1) #invalidate the result at this point
+                        #invalidate the result at this point
+                        filtered_ranges.append(data.range_max+1) 
                 except IndexError:
                     filtered_ranges.append(data.range_max+1)
             #publish filtered_ranges as LaserScan
@@ -53,7 +65,8 @@ class WallFilter:
                 self.new_walls[self.reset_count]=data.ranges
                 self.reset_count+=1
             elif self.reset_count == self.reset_thresh:
-                #unzip new_walls (to go by point instead of dataset) - len should be ~180
+                #unzip new_walls (to go by point instead of dataset)
+                #len should be ~180
                 zipped0=map(list, zip(*filter(None, self.new_walls[0::2])))
                 zipped1=map(list, zip(*filter(None, self.new_walls[1::2])))
                 self.walls[0] = [numpy.median(z) for z in zipped0]
@@ -63,16 +76,18 @@ class WallFilter:
                 self.new_walls=[[]]
                 self.filter_set = True
             
-    def wall_filter(self):
+    def setup(self):
+        """Initialize node, publisher, and subscribers"""
         rospy.init_node("wall_filter", anonymous=True)
         pub=rospy.Publisher("filtered_scan", LaserScan, queue_size=10)
-        rospy.Subscriber("etu_laser", LaserScan, self._rm_walls, pub) #needs to be subscribed to wall laser topic
+        #needs to be subscribed to wall laser topic
+        rospy.Subscriber("etu_laser", LaserScan, self._rm_walls, pub) 
         rospy.Subscriber("update_filter_cmd", Bool, self.reset_filter)
         rospy.spin()
 
 if __name__ == '__main__':
     node = WallFilter()
     try:
-        node.wall_filter()
+        node.setup()
     except rospy.ROSInterruptException:
         pass
